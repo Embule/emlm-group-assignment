@@ -70,6 +70,23 @@ summary(model.gaus)
 # How am I getting that age isn't a significant factor in Parkinson's?
 # I need random effects models.
 
+##### Model diagnostics for linear models with correlated errors (slides 154 - 165)
+# Plots of normalized residuals
+# look OK, no trends visible and spread of residuals in time is fairly constant
+plot(residuals(model.car1, type = "normalized"))
+plot(residuals(model.exp, type = "normalized"))
+plot(residuals(model.gaus, type = "normalized"))
+
+# QQ plots of pearson residuals
+plot(qqnorm(residuals(model.car1, type = "normalized")))
+plot(qqnorm(residuals(model.exp, type = "normalized")))
+plot(qqnorm(residuals(model.gaus, type = "normalized")))
+
+# All QQ plots show a skew which means the violations of normality for residuals 
+# is violated
+
+
+
 # linear mixed effects model for random intercepts and random slopes
 model.lme1 <- lme(
   UPDRS ~ smoking_status + Visit + Age + sex + Visit:smoking_status,
