@@ -1,10 +1,11 @@
 load("Group_7.RData")
 
-library(ggplot2)
 library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(nlme)
+library(lme4)
 
-# Very basic probing of the shape
-#----------------------
 for (i in 0:2) {
   print(mean(DF$smoking_status == i))
 }
@@ -24,7 +25,6 @@ ggplot(data = DF, aes(x = Visit, colour = "blue")) +
 #   geom_bar(stat = "identity") +
 #   labs(title = k))
 # }
-#----------------------
 
 # First set string variables to numeric
 # Male = 0, Female = 1
@@ -37,12 +37,57 @@ df <- df %>%
 # Centre age to get more meaningful results. Need to understand this better.
 df$age_centred <- scale(df$Age, center = TRUE, scale = FALSE)
 
-# What was done on slide 121
-library(nlme)
-# For highly unbalanced data collected at diﬀerent occassions per subject: Continuous AR1,
-# Exponential serial correlation, Gaussian serial correlation.
+all.patients.summary <- df%>% 
+  group_by(smoking_status, Visit) %>% 
+  summarise(
+    mean_UPDRS = mean(UPDRS, na.rm=TRUE),
+    sd_UPDRS = sd(UPDRS, na.rm=TRUE),
+    n = sum(!is.na(UPDRS)),
+    se_UPDRS = sd_UPDRS / sqrt(n)
+  )
 
-# Cont. AR1
+
+ggplot(all.patients.summary, aes(x = Visit, y = mean_UPDRS)) +
+  geom_line(color = "black") +
+  geom_point(shape = 21, fill = "white", size = 2) +
+  geom_errorbar(aes(ymin = mean_UPDRS - se_UPDRS,
+                     ymax = mean_UPDRS + se_UPDRS), 
+                width = 0.5, color = "blue") +
+  facet_wrap(~ smoking_status, nrow = 1, 
+             labeller = labeller(smoking_status =
+                                   c("0" = "Non-smoker",
+                                     "1" = "Former smoker",
+                                     "2" = "Current smoker")
+                                 )
+             ) +
+  labs(x = "Visit", y = "UPDRS Score")
+
+
+# Squared OLS residuals represent the squared vertical distances between 
+# observed and predicted values in a linear regression.
+# "A common variant is plotting squared residuals against the fitted values, sometimes 
+# including a smoothed regression line to better visualize the variance trend."
+lin.reg <- lm(UPDRS ~ Visit, data = df)
+sq.ols.residuals <- resid(lin.reg)^2
+
+df2 <- df
+df2$sq_ols_residuals <- sq.ols.residuals
+df2$fitted <- fitted(lin.reg)
+
+ggplot(df2, aes(x = Visit, y = sq_ols_residuals)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(x = "Visit", y = "Squared OLS Residuals")
+
+ggplot(df2, aes(x = fitted, y = sq_ols_residuals)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(x = "Fitted Values", y = "Squared OLS Residuals")
+# It does not look like there's any difference between the two
+
+# Model Selection & Refinement
+# Try various models and compare them with anova()
+
 model.car1 <- gls(
   UPDRS ~ Visit + smoking_status * age_centred + smoking_status * sex,
   correlation = corCAR1(form = ~ 1 | id),
