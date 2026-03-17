@@ -1,0 +1,188 @@
+---
+title: "Group 7"
+author: "Michael Gilbride, Teun Hooft, and Emily Koskinen"
+output: html_document
+date: "2026-03-16"
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+load("~/Documents/EM&LM/Group Assignment/Group_7.RData")
+df <- DF
+```
+
+```{r libraries, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(nlme)
+library(lme4)
+```
+
+# Introduction
+
+This study investigates the progression of motor symptoms in patients diagnosed with Parkinson's Disease (PD). The primary aim is to understand how smoking status influences the disease trajectory. In addition, the aim is to understand how this evolution is influenced by key patient characteristics such as sex, age at diagnosis.The study enrolled 500 patients who were diagnosed with PD between 1995 and 2011. Motor assessments were conducted at baseline and then annually for a total follow-up period of 7 years. The disease trajectory is assessed by motor symptoms measured using the Unified Parkinson's Disease Rating Scale (UPDRS) Part III: Motor Examination score. This score ranges from 0 to 108, where higher values indicate more severe motor impairment.
+
+# Descriptive Analysis
+
+```{r data_fix, echo=FALSE}
+df <- df %>% 
+  mutate(across(sex,
+    ~ case_when(
+      . == "male" ~ 0,
+      . == "female" ~ 1)
+  ))
+df$id <- as.numeric(as.character(df$id))
+
+
+df_wide <- df %>% 
+  pivot_wider(
+    names_from = Visit,
+    values_from = UPDRS,
+    names_prefix = "UPDRS_"
+  )
+df_wide <- df_wide[, c(1:7, 11, 8, 12, 10, 9)] # Rearrange the columns into the correct order
+```
+
+At visit 0 we have ~ 500 measurements, which drops to the range 300 to 350 for each subsequent visit. This means our data is unbalanced, which indicates that a continuous AR1, exponential serial, or Gaussian serial correlation structure will be needed.
+
+```{r visit_plot}
+ggplot(data = df, aes(x = Visit)) +
+  geom_histogram(stat = "bin", binwidth = 0.5)
+```
+
+The mean UPDRS score per visit for each smoking subgroup (non-, former, and current smoker) seems to increase exponentially. The standard error also increases for each visit.
+
+```{r smoking_plot}
+all.patients.summary <- df%>% 
+  group_by(smoking_status, Visit) %>% 
+  summarise(
+    mean_UPDRS = mean(UPDRS, na.rm=TRUE),
+    sd_UPDRS = sd(UPDRS, na.rm=TRUE),
+    n = sum(!is.na(UPDRS)),
+    se_UPDRS = sd_UPDRS / sqrt(n)
+  )
+
+ggplot(all.patients.summary, aes(x = Visit, y = mean_UPDRS)) +
+  geom_line(color = "black") +
+  geom_point(shape = 21, fill = "white", size = 2) +
+  geom_errorbar(aes(ymin = mean_UPDRS - se_UPDRS,
+                     ymax = mean_UPDRS + se_UPDRS), 
+                width = 0.5, color = "blue") +
+  facet_wrap(~ smoking_status, nrow = 1,  # This naming chunk appears in many graphs, could assign it its own name to speed things up
+             labeller = labeller(smoking_status =
+                                   c("0" = "Non-smoker",
+                                     "1" = "Former smoker",
+                                     "2" = "Current smoker")
+                                 )
+             ) +
+  labs(x = "Visit", y = "UPDRS Score")
+```
+This spread can be seen in spaghetti plots of random samples.
+
+```{r spaghetti_plot}
+random_ids <- df %>% 
+  distinct(smoking_status, id) %>% 
+  group_by(smoking_status) %>% 
+  slice_sample(n = 10)
+
+df_sample <- df %>% 
+  semi_join(random_ids, by = c("smoking_status", "id"))
+
+ggplot(df_sample, aes(x = Visit, y = UPDRS, group = id, colour = factor(id))) +
+  geom_line(show.legend = FALSE, alpha = 0.75) +
+  facet_wrap(~ smoking_status, nrow = 1) +
+  facet_wrap(~ smoking_status, nrow = 1, 
+             labeller = labeller(smoking_status =
+                                   c("0" = "Non-smoker",
+                                     "1" = "Former smoker",
+                                     "2" = "Current smoker")
+                                )
+             ) + 
+  labs(x = "Visit", y = "UPDRS Score")
+```
+
+The plot of squared OLS residuals vs. visit indicates that the variance is not constant, which means that we have heteroscedasticity. For visit 0, the square of the residuals is near zero but increases nonlinearly for each visit. 
+
+```{r ols_plot}
+lin.reg <- lm(UPDRS ~ Visit, data = df)
+sq.ols.residuals <- resid(lin.reg)^2
+
+df2 <- df
+df2$sq_ols_residuals <- sq.ols.residuals
+df2$fitted <- fitted(lin.reg)
+
+ggplot(df2, aes(x = Visit, y = sq_ols_residuals)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(x = "Visit", y = "Squared OLS Residuals")
+```
+
+# Statistical Analysis
+
+# Appendix
+
+## Model Selection
+
+We started with a simple model without any interactions and focus on whether our model needed random intercepts only, or both random intercepts and random slopes.
+```{r comp_rand}
+# Random intercepts only
+m1 <- lmer(UPDRS ~ Visit + smoking_status + Age + sex + (1 | id), data = df)
+# Random intercepts and random slopes
+m2 <- lmer(UPDRS ~ Visit + smoking_status + Age + sex + (Visit | id), data = df)
+anova(m1, m2)
+```
+As these models aren't nested, we consider the information criteria. As the more complicated model has lower values for both, this is the one we choose. 
+
+We then checked the interactions.
+
+```{r comp_int1}
+# Random intercepts and random slopes
+m1 <- lmer(UPDRS ~ Visit + smoking_status + Age + sex + (Visit | id), data = df)
+# RI + RS + all interactions
+m2 <- lmer(UPDRS ~ Visit*smoking_status*Age*sex + (Visit | id), data = df)
+anova(m1, m2)
+```
+Comparing the model with no interactions with the one with all interactions, we again see by the information criteria that the more complicated model is needed.
+
+We then narrowed down the number of interactions.
+
+```{r comp_int2}
+# Remove interaction between visit and everything else
+m1 <- lmer(UPDRS ~ Visit + smoking_status*Age*sex + (Visit | id), data = df)
+# RI + RS + all interactions
+m2 <- lmer(UPDRS ~ Visit*smoking_status*Age*sex + (Visit | id), data = df)
+anova(m1, m2)
+```
+```{r comp_int3}
+# Remove interaction between age and everything else
+m1 <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
+# RI + RS + all interactions
+m2 <- lmer(UPDRS ~ Visit*smoking_status*Age*sex + (Visit | id), data = df)
+anova(m1, m2)
+```
+
+```{r comp_int4}
+# Remove interaction between age/sex and everything else
+m1 <- lmer(UPDRS ~ Visit*smoking_status + sex + Age + (Visit | id), data = df)
+# Remove interaction between age and everything else
+m2 <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
+anova(m1, m2)
+```
+```{r comp_int5}
+# Remove age/sex from interaction but have them interact and
+m1 <- lmer(UPDRS ~ Visit*smoking_status + sex*Age + (Visit | id), data = df)
+# Remove interaction between age and everything else
+m2 <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
+anova(m1, m2)
+```
+This led to our selecting the following as the true model.
+
+```{r true_model}
+true.model <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
+```
+
+## Hypothesis Testing
+
+
+
