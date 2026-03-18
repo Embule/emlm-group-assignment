@@ -44,7 +44,7 @@ df_wide <- df %>%
 df_wide <- df_wide[, c(1:7, 11, 8, 12, 10, 9)] # Rearrange the columns into the correct order
 ```
 
-At visit 0 we have ~ 500 measurements, which drops to the range 300 to 350 for each subsequent visit. This means our data is unbalanced, which indicates that a continuous AR1, exponential serial, or Gaussian serial correlation structure will be needed.
+At visit 0 we have \~ 500 measurements, which drops to the range 300 to 350 for each subsequent visit. This means our data is unbalanced, which indicates that a continuous AR1, exponential serial, or Gaussian serial correlation structure will be needed.
 
 ```{r visit_plot}
 ggplot(data = df, aes(x = Visit)) +
@@ -78,6 +78,7 @@ ggplot(all.patients.summary, aes(x = Visit, y = mean_UPDRS)) +
              ) +
   labs(x = "Visit", y = "UPDRS Score")
 ```
+
 This spread can be seen in spaghetti plots of random samples.
 
 ```{r spaghetti_plot}
@@ -102,7 +103,9 @@ ggplot(df_sample, aes(x = Visit, y = UPDRS, group = id, colour = factor(id))) +
   labs(x = "Visit", y = "UPDRS Score")
 ```
 
-The plot of squared OLS residuals vs. visit indicates that the variance is not constant, which means that we have heteroscedasticity. For visit 0, the square of the residuals is near zero but increases nonlinearly for each visit. 
+# Statistical Analysis
+
+The plot of squared OLS residuals vs. visit indicates that the variance is not constant, which means that we have heteroscedasticity. Thus, we get further evidence backing up the spaghetti plots that the progression of Parkinson's across the patients in this study is not uniform.
 
 ```{r ols_plot}
 lin.reg <- lm(UPDRS ~ Visit, data = df)
@@ -118,21 +121,105 @@ ggplot(df2, aes(x = Visit, y = sq_ols_residuals)) +
   labs(x = "Visit", y = "Squared OLS Residuals")
 ```
 
-# Statistical Analysis
+From the correlation matrix of the UPDRS Scores below, we get the expected result that UPDRS Scores are less correlated the further along the measurement was taken.
+
+```{r cor}
+#colSums(is.na(df_wide)) # Around 180 missing measurements per visit after baseline
+df_wide_UPDRS <- subset(df_wide, select = -c(1,2,3,4)) 
+cor(df_wide_UPDRS, use = "pairwise.complete.obs")
+```
 
 # Appendix
 
 ## Model Selection
 
 We started with a simple model without any interactions and focus on whether our model needed random intercepts only, or both random intercepts and random slopes.
-```{r comp_rand}
+
+COMMENT, re. correlation structure.
+nlme just started working, God knows why. Cannot decide between CAR1 and AR1, neither anova nor residual plots gives any difference. 
+
+Why the confusion? The visits themselves are equally spaced (which implies AR1), but the measurements are sometimes missing so the measurements aren't actually evenly spaced (which implies CAR1 if the model 'skips' over NAs). 
+
+Will use AR1 as it's simpler so if it's all the same it'll save some computing time. Can change it with a single letter later so it's not too big a deal.
+
+
+COMMENT re. models from R packages
+I have included both nlme and lme4 below. If nlme continues working fine, I would prefer it, as I cannot specify correlation structure in lmer() (though this may not be necessary as controlling for random effects can already account for correlation) nor use anova() for hypothesis testing.
+
+I'm aslo geting that the boundary is singular and that the model is refit with ML instead of REML. Likely comes from too few observations per subject (lots of missing measurements.)
+
+Can't model heteroskedasticity directly with lme4? Does this explain why my nlme models have lower AIC/BIC?
+
+Will trim the fat later. nlme is looking like it'll be better.
+
+
+```{r comp_rand_lme4}
 # Random intercepts only
 m1 <- lmer(UPDRS ~ Visit + smoking_status + Age + sex + (1 | id), data = df)
 # Random intercepts and random slopes
 m2 <- lmer(UPDRS ~ Visit + smoking_status + Age + sex + (Visit | id), data = df)
 anova(m1, m2)
 ```
-As these models aren't nested, we consider the information criteria. As the more complicated model has lower values for both, this is the one we choose. 
+```{r comp_rand_nlme}
+# Random intercepts only
+m1 <- lme(UPDRS ~ Visit + smoking_status + sex + Age, 
+                  random = ~ 1 | id, # Visit | id
+                  weights = varExp(form = ~ Visit), # defines heteroskedasticity in Visit within the group.
+                  correlation = corAR1(form = ~ 1 | id), # visits are equally spaced, but measurements are sometimes missing: AR1 or CAR1?
+                  method = "REML",
+                  data = df)
+
+# Random intercepts and random slopes
+m2 <-lme(UPDRS ~ Visit + smoking_status + sex + Age, 
+                  random = list(id = pdDiag(~ Visit)), # Removes intercept-slope covariance (gets this model to work!)
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+anova(m1, m2)
+```
+COMMENT, re. AR(1) and random slopes
+Have seen it said that random slopes and AR(1) are alternative ways to model within-subject dependence. I test with anova() below.
+```{r within_subject_dependence1}
+# No AR(1), just random slope
+m1 <-lme(UPDRS ~ Visit + smoking_status + sex + Age, 
+                  random = ~ Visit | id,
+                  weights = varExp(form = ~ Visit),
+                  method = "REML",
+                  data = df)
+# AR(1) and random slope with now intercept-slope covariance
+m2 <-lme(UPDRS ~ Visit + smoking_status + sex + Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+
+anova(m1, m2)
+```
+```{r within_subject_dependence2}
+# No random slope, just AR(1)
+m1 <-lme(UPDRS ~ Visit + smoking_status + sex + Age, 
+                  random = ~ 1 | id,
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+# AR(1) and random slope with now intercept-slope covariance
+m2 <-lme(UPDRS ~ Visit + smoking_status + sex + Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+
+anova(m1, m2)
+```
+The model with both random slope (but no intercept-slope covariance) and AR(1) has the lowest AIC and BIC, so we keep it.
+
+
+
+As these models aren't nested, we consider the information criteria. As the more complicated model has lower values for both, this is the one we choose.
 
 We then checked the interactions.
 
@@ -143,6 +230,24 @@ m1 <- lmer(UPDRS ~ Visit + smoking_status + Age + sex + (Visit | id), data = df)
 m2 <- lmer(UPDRS ~ Visit*smoking_status*Age*sex + (Visit | id), data = df)
 anova(m1, m2)
 ```
+```{r comp_int_nlme1}
+# No interactions
+m1 <-lme(UPDRS ~ Visit + smoking_status + sex + Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+# All interactions
+m2 <-lme(UPDRS ~ Visit*smoking_status*sex*Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+anova(m1, m2)
+```
+
 Comparing the model with no interactions with the one with all interactions, we again see by the information criteria that the more complicated model is needed.
 
 We then narrowed down the number of interactions.
@@ -154,6 +259,25 @@ m1 <- lmer(UPDRS ~ Visit + smoking_status*Age*sex + (Visit | id), data = df)
 m2 <- lmer(UPDRS ~ Visit*smoking_status*Age*sex + (Visit | id), data = df)
 anova(m1, m2)
 ```
+```{r comp_int_nlme2}
+# Remove interaction between visit and everything else
+m1 <-lme(UPDRS ~ Visit + smoking_status*sex*Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+# All interactions
+m2 <-lme(UPDRS ~ Visit*smoking_status*sex*Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+anova(m1, m2)
+```
+
+
 ```{r comp_int3}
 # Remove interaction between age and everything else
 m1 <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
@@ -161,6 +285,24 @@ m1 <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
 m2 <- lmer(UPDRS ~ Visit*smoking_status*Age*sex + (Visit | id), data = df)
 anova(m1, m2)
 ```
+```{r comp_int_nlme3}
+# Remove interaction between age and everything else
+m1 <-lme(UPDRS ~ Visit*smoking_status*sex + Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+# All interactions
+m2 <-lme(UPDRS ~ Visit*smoking_status*sex*Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+anova(m1, m2)
+```
+
 
 ```{r comp_int4}
 # Remove interaction between age/sex and everything else
@@ -169,6 +311,25 @@ m1 <- lmer(UPDRS ~ Visit*smoking_status + sex + Age + (Visit | id), data = df)
 m2 <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
 anova(m1, m2)
 ```
+```{r comp_int_nlme4}
+# Remove interaction between age/sex and everything else
+m1 <-lme(UPDRS ~ Visit*smoking_status + sex + Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+# Remove interaction between age and everything else
+m2 <-lme(UPDRS ~ Visit*smoking_status*sex + Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+anova(m1, m2)
+```
+
+
 ```{r comp_int5}
 # Remove age/sex from interaction but have them interact and
 m1 <- lmer(UPDRS ~ Visit*smoking_status + sex*Age + (Visit | id), data = df)
@@ -176,13 +337,83 @@ m1 <- lmer(UPDRS ~ Visit*smoking_status + sex*Age + (Visit | id), data = df)
 m2 <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
 anova(m1, m2)
 ```
+```{r comp_int_nlme5}
+# Remove age/sex from interaction but have them interact and
+m1 <-lme(UPDRS ~ Visit*smoking_status + sex*Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+# Remove interaction between age and everything else
+m2 <-lme(UPDRS ~ Visit*smoking_status*sex + Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+anova(m1, m2)
+```
+```{r comp_int6}
+# Remove age/smoking from interaction
+m1 <- lmer(UPDRS ~ Visit*sex + smoking_status + Age + (Visit | id), data = df)
+# Remove interaction between age and everything else
+m2 <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
+anova(m1, m2)
+```
+```{r comp_int_nlme6}
+# Remove age/smoking from interaction
+m1 <-lme(UPDRS ~ Visit*sex + smoking_status + Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+# Remove interaction between age and everything else
+m2 <-lme(UPDRS ~ Visit*smoking_status*sex + Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+anova(m1, m2)
+```
+```{r comp_int7}
+# Remove age/smoking from interaction
+m1 <- lmer(UPDRS ~ Visit*sex + smoking_status + Age + (Visit | id), data = df)
+# Remove age/smoking from interaction but make them interact
+m2 <- lmer(UPDRS ~ Visit*sex + smoking_status*Age + (Visit | id), data = df)
+anova(m1, m2)
+```
+```{r comp_int_nlme7}
+# Remove age/smoking from interaction
+m1 <-lme(UPDRS ~ Visit*sex + smoking_status + Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+# Remove age/smoking from interaction but make them interact
+m2 <-lme(UPDRS ~ Visit*sex + smoking_status*Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
+anova(m1, m2)
+```
+
+
+
 This led to our selecting the following as the true model.
 
-```{r true_model}
-true.model <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
+```{r true_model_nlme}
+true.model2 <- lme(UPDRS ~ Visit*sex + smoking_status + Age, 
+                  random = list(id = pdDiag(~ Visit)),
+                  weights = varExp(form = ~ Visit),
+                  correlation = corAR1(form = ~ Visit | id),
+                  method = "REML",
+                  data = df)
 ```
 
 ## Hypothesis Testing
-
-
-

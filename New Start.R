@@ -131,14 +131,92 @@ cor(df_wide_UPDRS, use = "pairwise.complete.obs")
 
 
 # Make a mixed effects model with AR1 correlation structure, nlme package.
-model1 <- lme(UPDRS ~ Visit + smoking_status + sex + Age, 
-                  random = ~ 1 | id,
-                  correlation = corCAR1(form = ~ Visit | id),
-                  data = df,
-                  method = "ML"
+model.car1 <- lme(UPDRS ~ Visit + smoking_status + sex + Age, 
+              random = ~ 1 | id, # Visit | id
+              weights = varExp(form = ~ Visit), # defines heteroskedasticity in Visit within the group.
+              correlation = corCAR1(form = ~ Visit | id), # visits are equally spaced, but measurements are sometimes missing: AR1 or CAR1
+              method = "REML",
+              data = df)
+sq.ols.residuals.car1 <- resid(model.car1)^2
+plot(df$Visit, sq.ols.residuals.car1)
+
+model.ar1 <- lme(UPDRS ~ Visit + smoking_status + sex + Age, 
+                  random = ~ 1| id, # Visit | id
+                  weights = varExp(form = ~ Visit), # defines heteroskedasticity in Visit within the group.
+                  correlation = corAR1(form = ~ Visit | id), # visits are equally spaced, but measurements are sometimes missing: AR1 or CAR1
+                  method = "REML",
+                  data = df)
+sq.ols.residuals.ar1 <- resid(model.ar1)^2
+plot(df$Visit, sq.ols.residuals.ar1)
+
+anova(model.ar1, model.car1)
+# No difference between CAR1 and AR1 (residual plots are identical, anova is identical)
+
+
+# Trying to put random slope into the above (control term is because I tried it before without it and I got something about max iterations and non-convergence)
+model.ar1 <- lme(
+  UPDRS ~ Visit + smoking_status + sex + Age,
+  random = ~ Visit | id,
+  weights = varExp(form = ~ Visit),
+  correlation = corAR1(form = ~ Visit | id),
+  method = "REML",
+  data = df,
+  control = lmeControl(
+    maxIter = 100,
+    msMaxIter = 100,
+    niterEM = 50,
+    msVerbose = TRUE
+  )
 )
-summary(model1)
-# nlme seems to crumble at the first hurdle.
+# Doesn't work :(
+# Change tack
+
+
+# SEQUENCE TO TRY GET EVERYTHING IN MY MODEL (PERHAPS UNNECESSARY)
+model1 <- lme(
+  UPDRS ~ Visit + smoking_status + sex + Age,
+  random = ~ Visit | id,
+  data = df
+)
+# Fails
+# Trying to fix it
+model0 <- lme(
+  UPDRS ~ Visit + smoking_status + sex + Age,
+  random = ~ 1 | id,
+  data = df
+)
+df$Visit_c <- scale(df$Visit)
+df$Age_c   <- scale(df$Age)
+model1 <- lme(
+  UPDRS ~ Visit_c + smoking_status + sex + Age_c,
+  random = ~ Visit_c | id,
+  data = df
+)
+# Fails again
+# Trying to fix it again
+model1 <- lme(
+  UPDRS ~ Visit + smoking_status + sex + Age,
+  random = list(id = pdDiag(~ Visit)), # Removes intercept-slope covariance
+  data = df
+)
+# Working
+# Add heteroskedasticiy
+model2 <- update(model1,
+                 weights = varExp(form = ~ Visit)
+)
+anova(model1, model2)
+# Model 2 has lower AIC, BIC
+# Add correlation
+model3 <- update(model2,
+                 correlation = corAR1(form = ~ Visit | id)
+)
+
+anova(model2, model3)
+# Model 3 has lower AIC, BIC
+# Finally got a model with random intercepts, random slope, heteroskedasticity, and an AR1 within- subject correlation structure.
+
+
+
 
 # Trying the lme4 package
 model1 <- lmer(UPDRS ~ Visit*smoking_status*sex*Age + (Visit | id), data = df)
