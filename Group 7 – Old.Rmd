@@ -181,6 +181,13 @@ Can't model heteroskedasticity directly with lme4? Does this explain why my nlme
 Will trim the fat later. nlme is looking like it'll be better.
 
 
+```{r comp_rand_lme4}
+# Random intercepts only
+m1 <- lmer(UPDRS ~ Visit + smoking_status + Age + sex + (1 | id), data = df)
+# Random intercepts and random slopes
+m2 <- lmer(UPDRS ~ Visit + smoking_status + Age + sex + (Visit | id), data = df)
+anova(m1, m2)
+```
 ```{r comp_rand_nlme}
 # Random intercepts only
 m1 <- lme(UPDRS ~ Visit + smoking_status + sex + Age, 
@@ -208,7 +215,7 @@ m1 <-lme(UPDRS ~ Visit + smoking_status + sex + Age,
                   weights = varExp(form = ~ Visit),
                   method = "REML",
                   data = df)
-# AR(1) and random slope with no intercept-slope covariance
+# AR(1) and random slope with now intercept-slope covariance
 m2 <-lme(UPDRS ~ Visit + smoking_status + sex + Age, 
                   random = list(id = pdDiag(~ Visit)),
                   weights = varExp(form = ~ Visit),
@@ -226,7 +233,7 @@ m1 <-lme(UPDRS ~ Visit + smoking_status + sex + Age,
                   correlation = corAR1(form = ~ Visit | id),
                   method = "REML",
                   data = df)
-# AR(1) and random slope with no intercept-slope covariance
+# AR(1) and random slope with now intercept-slope covariance
 m2 <-lme(UPDRS ~ Visit + smoking_status + sex + Age, 
                   random = list(id = pdDiag(~ Visit)),
                   weights = varExp(form = ~ Visit),
@@ -243,6 +250,14 @@ The model with both random slope (but no intercept-slope covariance) and AR(1) h
 As these models aren't nested, we consider the information criteria. As the more complicated model has lower values for both, this is the one we choose.
 
 We then checked the interactions.
+
+```{r comp_int1}
+# Random intercepts and random slopes
+m1 <- lmer(UPDRS ~ Visit + smoking_status + Age + sex + (Visit | id), data = df)
+# RI + RS + all interactions
+m2 <- lmer(UPDRS ~ Visit*smoking_status*Age*sex + (Visit | id), data = df)
+anova(m1, m2)
+```
 ```{r comp_int_nlme1}
 # No interactions
 m1 <-lme(UPDRS ~ Visit + smoking_status + sex + Age, 
@@ -264,6 +279,14 @@ anova(m1, m2)
 Comparing the model with no interactions with the one with all interactions, we again see by the information criteria that the more complicated model is needed.
 
 We then narrowed down the number of interactions.
+
+```{r comp_int2}
+# Remove interaction between visit and everything else
+m1 <- lmer(UPDRS ~ Visit + smoking_status*Age*sex + (Visit | id), data = df)
+# RI + RS + all interactions
+m2 <- lmer(UPDRS ~ Visit*smoking_status*Age*sex + (Visit | id), data = df)
+anova(m1, m2)
+```
 ```{r comp_int_nlme2}
 # Remove interaction between visit and everything else
 m1 <-lme(UPDRS ~ Visit + smoking_status*sex*Age, 
@@ -282,6 +305,14 @@ m2 <-lme(UPDRS ~ Visit*smoking_status*sex*Age,
 anova(m1, m2)
 ```
 
+
+```{r comp_int3}
+# Remove interaction between age and everything else
+m1 <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
+# RI + RS + all interactions
+m2 <- lmer(UPDRS ~ Visit*smoking_status*Age*sex + (Visit | id), data = df)
+anova(m1, m2)
+```
 ```{r comp_int_nlme3}
 # Remove interaction between age and everything else
 m1 <-lme(UPDRS ~ Visit*smoking_status*sex + Age, 
@@ -297,6 +328,15 @@ m2 <-lme(UPDRS ~ Visit*smoking_status*sex*Age,
                   correlation = corAR1(form = ~ Visit | id),
                   method = "REML",
                   data = df)
+anova(m1, m2)
+```
+
+
+```{r comp_int4}
+# Remove interaction between age/sex and everything else
+m1 <- lmer(UPDRS ~ Visit*smoking_status + sex + Age + (Visit | id), data = df)
+# Remove interaction between age and everything else
+m2 <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
 anova(m1, m2)
 ```
 ```{r comp_int_nlme4}
@@ -316,6 +356,15 @@ m2 <-lme(UPDRS ~ Visit*smoking_status*sex + Age,
                   data = df)
 anova(m1, m2)
 ```
+
+
+```{r comp_int5}
+# Remove age/sex from interaction but have them interact and
+m1 <- lmer(UPDRS ~ Visit*smoking_status + sex*Age + (Visit | id), data = df)
+# Remove interaction between age and everything else
+m2 <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
+anova(m1, m2)
+```
 ```{r comp_int_nlme5}
 # Remove age/sex from interaction but have them interact and
 m1 <-lme(UPDRS ~ Visit*smoking_status + sex*Age, 
@@ -333,6 +382,13 @@ m2 <-lme(UPDRS ~ Visit*smoking_status*sex + Age,
                   data = df)
 anova(m1, m2)
 ```
+```{r comp_int6}
+# Remove age/smoking from interaction
+m1 <- lmer(UPDRS ~ Visit*sex + smoking_status + Age + (Visit | id), data = df)
+# Remove interaction between age and everything else
+m2 <- lmer(UPDRS ~ Visit*smoking_status*sex + Age + (Visit | id), data = df)
+anova(m1, m2)
+```
 ```{r comp_int_nlme6}
 # Remove age/smoking from interaction
 m1 <-lme(UPDRS ~ Visit*sex + smoking_status + Age, 
@@ -348,6 +404,13 @@ m2 <-lme(UPDRS ~ Visit*smoking_status*sex + Age,
                   correlation = corAR1(form = ~ Visit | id),
                   method = "REML",
                   data = df)
+anova(m1, m2)
+```
+```{r comp_int7}
+# Remove age/smoking from interaction
+m1 <- lmer(UPDRS ~ Visit*sex + smoking_status + Age + (Visit | id), data = df)
+# Remove age/smoking from interaction but make them interact
+m2 <- lmer(UPDRS ~ Visit*sex + smoking_status*Age + (Visit | id), data = df)
 anova(m1, m2)
 ```
 ```{r comp_int_nlme7}
