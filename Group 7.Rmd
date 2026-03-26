@@ -20,6 +20,7 @@ library(ggplot2)
 library(gridExtra)
 library(tidyverse)
 library(nlme)
+library(lattice)
 ```
 
 # Introduction
@@ -143,6 +144,16 @@ ggplot(sex.summary, aes(x = Visit, y = mean_UPDRS)) +
   ) +
   split_by_sex +
   labs(x = "Visit", y = "UPDRS Score")
+
+# Plot percentages in time and per sex
+xyplot(UPDRS ~ Visit | sex, data = df,
+       prepanel = function(x, y) prepanel.loess(x, y, span = 1),
+       xlab = "Visits", ylab = "UPDRS score",
+       panel = function(x, y) {
+           panel.grid(h = -1, v = 2)
+           panel.xyplot(x, y)
+           panel.loess(x, y, span=1)
+       })
 ```
 
 ```{r age_plot}
@@ -231,6 +242,102 @@ ggplot(df_sample_age, aes(
 #grid.arrange(plot5, plot6, ncol = 1)
 ```
 
+
+## Missingness analysis
+```{r}
+# Percentage of participants at each visit
+n = length(unique(df$id))
+round(table(df$Visit) / n * 100, 1)
+
+# Checking for missing data
+# md.pattern(df[, c("Visit", "UPDRS", "age_groups", "sex_num", "smoking_status")])
+
+# Creating a grid of all possible visits for each id
+all_visits <- expand.grid(id = unique(df$id), Visit = 0:7)
+
+plot_data <- all_visits %>%
+  left_join(df, by = c("id", "Visit")) %>%
+  mutate(status = if_else(is.na(UPDRS), "Missing", "Observed"))
+
+# Join with your data to see where NAs appear
+missing_check <- all_visits %>%
+  left_join(df, by = c("id", "Visit")) %>%
+  mutate(is_missing = is.na(UPDRS))
+
+# Plot the observed points and the trends with the UPDRS score.
+# How to interpret???
+ggplot(plot_data, aes(x = Visit, y = UPDRS)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(x = "Visit", y = "UPDRS score")
+
+# Summarize missingness by visit and sex
+missing_summary_sex <- missing_check %>%
+  group_by(Visit, sex) %>%
+  summarise(
+    total_expected = n(),
+    total_missing = sum(is_missing),
+    percent_missing = (sum(is_missing) / n()) * 100
+  )
+
+print(missing_summary_sex)
+
+# Get the percentage of each sex at each visit
+sex_ratio <- df %>%
+  group_by(Visit, sex) %>%
+  summarise(count = n()) %>%
+  mutate(percentage = count / sum(count) * 100)
+sex_ratio
+
+# Plot sex ratio for each visit
+plot_sex_ratio <- ggplot(sex_ratio, aes(x = factor(Visit), y = percentage, fill = sex)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(percentage), "%")), 
+            position = position_stack(vjust = 0.5)) +
+  labs(title = "Sex Distribution Across Visits",
+       x = "Visit", y = "Percentage (%)") +
+  theme_minimal()
+
+# Get the percentage of each smoking status at each visit
+smoking_ratio <- df %>%
+  group_by(Visit, smoking_status) %>%
+  summarise(count = n()) %>%
+  mutate(percentage = count / sum(count) * 100)
+smoking_ratio
+
+# Plot smoking ratio to see if the proportions stay similar for each visit
+plot_smoking_ratio <- ggplot(smoking_ratio, aes(x = factor(Visit), y = percentage, fill = smoking_status)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(percentage), "%")), 
+            position = position_stack(vjust = 0.5)) +
+  labs(title = "Smoking Status Distribution Across Visits",
+       x = "Visit", y = "Percentage (%)") +
+  theme_minimal()
+
+# Get the percentage of age groups at each visit
+age_ratio <- df %>%
+  group_by(Visit, age_groups) %>%
+  summarise(count = n()) %>%
+  mutate(percentage = count / sum(count) * 100)
+age_ratio
+
+# Plot smoking ratio to see if the proportions stay similar for each visit
+plot_age_ratio <- ggplot(age_ratio, aes(x = factor(Visit), y = percentage, fill = age_groups)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(percentage), "%")), 
+             position = position_stack(vjust = 0.5)) +
+  labs(title = "Age Distribution Across Visits",
+       x = "Visit", y = "Percentage (%)") +
+  theme_minimal()
+
+# grid.arrange(plot_sex_ratio, plot_age_ratio, plot_smoking_ratio, ncol = 1)
+plot_sex_ratio
+plot_age_ratio
+plot_smoking_ratio
+```
+
+
+
 # Statistical Analysis
 
 The plot of squared OLS residuals against visit indicates that the variance is not constant, which means that we have heteroscedasticity. Thus, we get further evidence backing up the spaghetti plots that the progression of Parkinson's across the patients in this study is not uniform.
@@ -277,6 +384,18 @@ true.model <- lme(
   data = df
 )
 summary(true.model)
+
+true.model1 <- lme(
+  UPDRS ~ Visit * sex + Age + smoking_status,
+  random = list(id = pdDiag( ~ Visit)),
+  weights = varExp(form = ~ Visit),
+  correlation = corAR1(form = ~ Visit | id),
+  method = "REML",
+  data = df
+)
+summary(true.model1)
+
+anova(true.model,true.model1)
 ```
 
 
