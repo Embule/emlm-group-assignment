@@ -337,7 +337,6 @@ plot_smoking_ratio
 ```
 
 
-
 # Statistical Analysis
 
 The plot of squared OLS residuals against visit indicates that the variance is not constant, which means that we have heteroscedasticity. Thus, we get further evidence backing up the spaghetti plots that the progression of Parkinson's across the patients in this study is not uniform.
@@ -357,6 +356,7 @@ ggplot(df2, aes(x = Visit, y = sq_ols_residuals)) +
 ```
 
 From the correlation matrix of the available UPDRS Scores below, we get the expected result that UPDRS Scores are less correlated the further along the measurement was taken.
+
 \footnotesize
 ```{r cor}
 df_wide_UPDRS <- subset(df_wide, select = -c(1, 2, 3, 4, 5, 6))
@@ -376,7 +376,7 @@ where $\beta$ are our model's regression parameters, $i = 1,2,\dots,2765$ denote
 
 ```{r model, echo=TRUE}
 true.model <- lme(
-  UPDRS ~ Visit * smoking_status * sex + Age,
+  UPDRS ~ Visit * sex * smoking_status + Age,
   random = list(id = pdDiag( ~ Visit)),
   weights = varExp(form = ~ Visit),
   correlation = corAR1(form = ~ Visit | id),
@@ -384,21 +384,56 @@ true.model <- lme(
   data = df
 )
 summary(true.model)
+round(summary(true.model)$tTable, 4)
 
-true.model1 <- lme(
-  UPDRS ~ Visit * sex + Age + smoking_status,
-  random = list(id = pdDiag( ~ Visit)),
-  weights = varExp(form = ~ Visit),
-  correlation = corAR1(form = ~ Visit | id),
-  method = "REML",
-  data = df
-)
-summary(true.model1)
+# The estimated mean intercept is:
+round(summary(true.model)$tTable["(Intercept)", "Value"], 3)
+# The estimated mean slope is:
+round(summary(true.model)$tTable["Visit", "Value"], 3)
+# The estimated variances are on the main diagonal
+getVarCov(true.model)[1:2, 1:2]
+# The upper and lower limits of the individual level interval are:
+var.slope <- getVarCov(true.model)[2, 2]
+mean.slope <- summary(true.model)$tTable["Visit", "Value"]
+ri.upp <- mean.slope + 2 * sqrt(var.slope)
+ri.low <- mean.slope - 2 * sqrt(var.slope)
+ri.low
+ri.upp
 
-anova(true.model,true.model1)
+# Variance of the slopes
+#### Doesn't work ???
+# diag(getVarCov(true.model, type = "random.effects"))[3]
+# sum(diag(getVarCov(true.model, type = "random.effects"))[3:4]) + 2 * getVarCov(true.model, type = "random.effects")[3, 4]
+
+# The estimated residual variance:
+getVarCov(true.model, type = "conditional", individuals = c(1,38))
+
+# Potential, more parsimonius model with smoking interaction effect
+# true.model1 <- lme(
+#   UPDRS ~ Visit * sex + Age + smoking_status,
+#   random = list(id = pdDiag( ~ Visit)),
+#   weights = varExp(form = ~ Visit),
+#   correlation = corAR1(form = ~ Visit | id),
+#   method = "REML",
+#   data = df
+# )
+# summary(true.model1)
+# 
+# anova(true.model,true.model1)
 ```
 
 
+## Assumptions checks
+
+```{r}
+# Explore goodness of fit: Residuals vs Fitted values
+# Shows heteroskedasticity which justifies the use of weights in the model
+plot(true.model, resid(., type = "n") ~ fitted(.), 
+     type = c("p", "smooth"), lwd = 3)
+
+# Check the normality assumption
+qqnorm(true.model, ~ resid(., type = "n"), abline = c(0, 1))
+```
 
 
 # Appendix
