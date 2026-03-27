@@ -11,7 +11,7 @@ fontsize: 9pt
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, fig.align = "center")
 load("~/Documents/EM&LM/Group Assignment/Group_7.RData")
 df <- DF
 
@@ -94,7 +94,7 @@ grid.arrange(plot1, plot2, plot3, plot4, ncol = 2)
 
 The mean UPDRS score per visit for each smoking subgroup (non-, former, and current smoker) appears non-linear. The standard error also increases for each visit.
 
-```{r smoking_plot, out.width="75%"}
+```{r smoking_plot, out.width="55%"}
 smokers.summary <- df %>% 
   group_by(smoking_status, Visit) %>% # Split the participants into their smoking status and evaluate the UPDRS by Visit
   summarise(.groups = "drop_last",
@@ -117,7 +117,7 @@ ggplot(smokers.summary, aes(x = Visit, y = mean_UPDRS)) +
   labs(x = "Visit", y = "UPDRS Score")
 ```
 
-```{r sex_plot}
+```{r sex_plot, out.width="55%"}
 sex.summary <- df %>% 
   group_by(sex_num, Visit) %>% # Split the participants into their smoking status and evaluate the UPDRS by Visit
   summarise(.groups = "drop_last",
@@ -138,7 +138,7 @@ ggplot(sex.summary, aes(x = Visit, y = mean_UPDRS)) +
   labs(x = "Visit", y = "UPDRS Score")
 ```
 
-```{r age_plot}
+```{r age_plot, out.width="55%"}
 age.summary <- df %>% 
   group_by(age_groups, Visit) %>% # Split the participants into their smoking status and evaluate the UPDRS by Visit
   summarise(.groups = "drop_last",
@@ -163,42 +163,42 @@ ggplot(age.summary, aes(x = Visit, y = mean_UPDRS)) +
 
 This spread can be seen in the following spaghetti plots from a random sample of participants.
 
-```{r spaghetti_plots, out.width="75%"}
+```{r spaghetti_plots1, out.width="75%"}
 # If I were better with R, I'd make this 3x times repeated object a function
 random_smokers <- df %>% distinct(smoking_status, id) %>% 
   group_by(smoking_status) %>% slice_sample(n = 12)
 df_sample_smokers <- df %>%
   semi_join(random_smokers, by = c("smoking_status", "id"))
 
-random_sex <- df %>% distinct(sex_num, id) %>% 
-  group_by(sex_num) %>% slice_sample(n = 12)
-df_sample_sex <- df %>%
-  semi_join(random_sex, by = c("sex_num", "id"))
-
-random_age <- df %>% distinct(age_groups, id) %>% 
-  group_by(age_groups) %>% slice_sample(n = 12)
-df_sample_age <- df %>%
-  semi_join(random_age, by = c("age_groups", "id"))
-
-
 ggplot(df_sample_smokers, aes(x = Visit, y = UPDRS, group = id, colour = factor(id))) +
   geom_line(show.legend = FALSE, alpha = 0.75) +
   facet_wrap(~ smoking_status, nrow = 1) +
   split_by_smoking + 
   labs(x = "Visit", y = "UPDRS Score")
+```
+```{r spaghetti_plot2, out.width="75%"}
+random_sex <- df %>% distinct(sex_num, id) %>% 
+  group_by(sex_num) %>% slice_sample(n = 12)
+df_sample_sex <- df %>%
+  semi_join(random_sex, by = c("sex_num", "id"))
 
 ggplot(df_sample_sex, aes(x = Visit, y = UPDRS, group = id, colour = factor(id))) +
   geom_line(show.legend = FALSE, alpha = 0.75) +
   facet_wrap(~ sex_num, nrow = 1) +
   split_by_sex + 
   labs(x = "Visit", y = "UPDRS Score")
+```
+
+```{r spaghetti_plots3, out.width="75%"}
+random_age <- df %>% distinct(age_groups, id) %>% 
+  group_by(age_groups) %>% slice_sample(n = 12)
+df_sample_age <- df %>%
+  semi_join(random_age, by = c("age_groups", "id"))
 
 ggplot(df_sample_age, aes(x = Visit, y = UPDRS, group = id, colour = factor(id))) +
   geom_line(show.legend = FALSE, alpha = 0.75) +
   facet_wrap(~ age_groups, nrow = 1) + 
   labs(x = "Visit", y = "UPDRS Score")
-
-#grid.arrange(plot5, plot6, ncol = 1)
 ```
 
 # Statistical Analysis
